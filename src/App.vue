@@ -86,16 +86,15 @@ let pdfjsLib: any = null;
 
 onMounted(async () => {
   try {
-    // CDNからPDF.jsスクリプトを動的に読み込み
+    // ローカルのPDF.jsスクリプトを読み込み
     const script = document.createElement("script");
-    script.src = "https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.min.js";
+    script.src = "/pdf.min.js";
     script.onload = () => {
       // @ts-ignore
       pdfjsLib = window.pdfjsLib;
       // @ts-ignore
-      pdfjsLib.GlobalWorkerOptions.workerSrc =
-        "https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
-      console.log("PDF.js loaded successfully");
+      pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.js";
+      console.log("PDF.js loaded successfully from local file");
     };
     script.onerror = () => {
       error.value = "PDF.jsの読み込みに失敗しました";
