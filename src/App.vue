@@ -3,15 +3,46 @@
     <h1>PDF to Image Converter</h1>
 
     <div class="upload-section">
-      <input
-        type="file"
-        accept=".pdf"
-        @change="handleFileChange"
-        ref="fileInput"
-        id="file-input"
-        class="file-input"
-      />
-      <label for="file-input" class="file-label"> PDFファイルを選択 </label>
+      <div class="upload-option">
+        <h3>ファイルから選択</h3>
+        <input
+          type="file"
+          accept=".pdf"
+          @change="handleFileChange"
+          ref="fileInput"
+          id="file-input"
+          class="file-input"
+        />
+        <label for="file-input" class="file-label"> PDFファイルを選択 </label>
+      </div>
+
+      <div class="divider">または</div>
+
+      <div class="upload-option">
+        <h3>URLから読み込み</h3>
+        <div class="url-input-section">
+          <input
+            type="url"
+            v-model="pdfUrl"
+            placeholder="PDFのURLを入力してください"
+            class="url-input"
+          />
+          <button
+            @click="handleUrlLoad"
+            class="url-button"
+            :disabled="!pdfUrl || loading"
+          >
+            URLから変換
+          </button>
+        </div>
+        <div class="url-note">
+          <small>
+            ※
+            一部のサイトはCORSポリシーによりアクセスできない場合があります。<br />
+            直接ダウンロード可能なPDFのURLを使用してください。
+          </small>
+        </div>
+      </div>
     </div>
 
     <div v-if="loading" class="loading">変換中...</div>
@@ -46,6 +77,9 @@ const fileInput = ref<HTMLInputElement>();
 const images = ref<string[]>([]);
 const loading = ref(false);
 const error = ref("");
+const pdfUrl = ref(
+  "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf"
+);
 
 // PDF.jsを動的にロードする
 let pdfjsLib: any = null;
@@ -87,6 +121,81 @@ const handleFileChange = async (event: Event) => {
   await convertPdfToImages(file);
 };
 
+const handleUrlLoad = async () => {
+  if (!pdfUrl.value) {
+    error.value = "PDFのURLを入力してください";
+    return;
+  }
+
+  if (!pdfjsLib) {
+    error.value =
+      "PDF.jsがまだ読み込まれていません。しばらく待ってから再試行してください。";
+    return;
+  }
+
+  loading.value = true;
+  error.value = "";
+  images.value = [];
+
+  // 複数のCORSプロキシを試す
+  const corsProxies = [
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(pdfUrl.value)}`,
+    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(
+      pdfUrl.value
+    )}`,
+    pdfUrl.value, // 直接アクセスも試す
+  ];
+
+  for (let i = 0; i < corsProxies.length; i++) {
+    try {
+      console.log(
+        `Trying proxy ${i + 1}/${corsProxies.length}: ${corsProxies[i]}`
+      );
+
+      const response = await fetch(corsProxies[i]);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const arrayBuffer = await response.arrayBuffer();
+
+      // ArrayBufferが空でないことを確認
+      if (arrayBuffer.byteLength === 0) {
+        throw new Error("取得したファイルが空です");
+      }
+
+      // PDFの署名を確認（PDFファイルは%PDFで始まる）
+      const firstBytes = new Uint8Array(arrayBuffer.slice(0, 4));
+      const signature = String.fromCharCode(...firstBytes);
+      if (!signature.startsWith("%PDF")) {
+        throw new Error("取得したファイルはPDFではありません");
+      }
+
+      await convertPdfFromArrayBuffer(arrayBuffer);
+      return; // 成功した場合は関数を終了
+    } catch (err) {
+      console.error(`Proxy ${i + 1} failed:`, err);
+
+      // 最後のプロキシも失敗した場合
+      if (i === corsProxies.length - 1) {
+        error.value = `PDFの取得中にエラーが発生しました。
+
+原因の可能性:
+1. URLが正しくない
+2. PDFファイルが存在しない  
+3. サーバーがCORSを許可していない
+4. プロキシサービスが利用できない
+
+以下を確認してください:
+• URLが正しく、PDFファイルが存在することを確認
+• ブラウザでURLに直接アクセスしてPDFが表示されることを確認
+• 可能であれば、CORSヘッダーを設定したサーバーのPDFを使用`;
+        loading.value = false;
+      }
+    }
+  }
+};
+
 const convertPdfToImages = async (file: File) => {
   if (!pdfjsLib) {
     error.value =
@@ -100,6 +209,16 @@ const convertPdfToImages = async (file: File) => {
 
   try {
     const arrayBuffer = await file.arrayBuffer();
+    await convertPdfFromArrayBuffer(arrayBuffer);
+  } catch (err) {
+    console.error("PDF変換エラー:", err);
+    error.value = "PDFの変換中にエラーが発生しました";
+    loading.value = false;
+  }
+};
+
+const convertPdfFromArrayBuffer = async (arrayBuffer: ArrayBuffer) => {
+  try {
     const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
     const totalPages = pdf.numPages;
 
@@ -130,6 +249,7 @@ const convertPdfToImages = async (file: File) => {
   } catch (err) {
     console.error("PDF変換エラー:", err);
     error.value = "PDFの変換中にエラーが発生しました";
+    throw err;
   } finally {
     loading.value = false;
   }
@@ -153,6 +273,80 @@ h1 {
 .upload-section {
   text-align: center;
   margin-bottom: 30px;
+}
+
+.upload-option {
+  margin-bottom: 20px;
+  padding: 20px;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  background-color: #f9f9f9;
+}
+
+.upload-option h3 {
+  margin: 0 0 15px 0;
+  color: #333;
+  font-size: 18px;
+}
+
+.divider {
+  margin: 20px 0;
+  font-size: 16px;
+  color: #666;
+  font-weight: bold;
+}
+
+.url-input-section {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.url-input {
+  flex: 1;
+  min-width: 300px;
+  padding: 12px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.url-input:focus {
+  outline: none;
+  border-color: #007bff;
+  box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+}
+
+.url-button {
+  padding: 12px 24px;
+  background-color: #28a745;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background-color 0.3s;
+}
+
+.url-button:hover:not(:disabled) {
+  background-color: #218838;
+}
+
+.url-button:disabled {
+  background-color: #6c757d;
+  cursor: not-allowed;
+}
+
+.url-note {
+  margin-top: 10px;
+  color: #666;
+  font-style: italic;
+}
+
+.url-note small {
+  font-size: 12px;
 }
 
 .file-input {

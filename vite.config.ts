@@ -13,4 +13,13 @@ export default defineConfig({
       '@': fileURLToPath(new URL('./src', import.meta.url))
     },
   },
+  server: {
+    proxy: {
+      '/api/pdf': {
+        target: 'https://www.kansaigaidai.ac.jp',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/pdf/, '')
+      }
+    }
+  }
 })
